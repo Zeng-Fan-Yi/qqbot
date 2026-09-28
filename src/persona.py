@@ -29,6 +29,12 @@ _PERSONA = load_persona()
 _NAME = _PERSONA['name']
 _NICKNAMES = '、'.join(_PERSONA.get('nicknames', []))
 _ADDRESS_STR = '、'.join(_PERSONA.get('address_words', []))
+# 目标人物专属的提示词片段（隐私、放 persona.json 的 prompt_hints 里），没有则用通用回退
+_HINTS = _PERSONA.get('prompt_hints', {})
+_RECALL_CLAIM = _HINTS.get('recall_claim_examples', '比如「你以前…」「我们是不是同学」「你玩不玩游戏」')
+_RECALL_KEYWORD = _HINTS.get('recall_keyword_examples', '如「游戏」「女朋友」「学校」')
+_SILENT_RELATED = _HINTS.get('silent_related', '你在玩的游戏、你的学校课程')
+_SILENT_GAME_EXAMPLE = _HINTS.get('silent_game_example', '对方：有人打游戏吗\n你：有，我打')
 
 # 系统提示词放在 config/system_prompt.txt（隐私、不入库），
 # 没有该文件时回退到 config/system_prompt.example.txt（通用模板）。
@@ -52,13 +58,12 @@ RECALL_MEMORY_TOOL = {
         'name': 'recall_memory',
         'description': (
             f'检索你（{_NAME}）自己的过往记忆。'
-            '当对方问起你的事，或对方声称/提到关于你的事（比如「你以前…」'
-            '「我们是不是同学」「你玩不玩游戏」）时，先调用本工具查询再回答。'
+            f'当对方问起你的事，或对方声称/提到关于你的事（{_RECALL_CLAIM}）时，先调用本工具查询再回答。'
             '别凭空否认、别瞎编、别乱说。普通闲聊、不涉及你个人的话题不要调用。'),
         'parameters': {
             'type': 'object',
             'properties': {
-                'query': {'type': 'string', 'description': '1-4 个字的简短关键词，如「游戏」「女朋友」「学校」，不要写整句'}
+                'query': {'type': 'string', 'description': f'1-4 个字的简短关键词，{_RECALL_KEYWORD}，不要写整句'}
             },
             'required': ['query'],
         },
@@ -173,13 +178,13 @@ class Persona:
             sys += '\n\n【要不要回？重要：你在群里大部分时候不说话】\n'
             sys += '只有两种情况才开口，其余一律只回 [SILENT]（就这三个字母，别输出别的字）：\n'
             sys += f'1. 有人叫你/点名你（{_ADDRESS_STR}、@你），或明显在跟你说话 → 回。\n'
-            sys += '2. 有人明确聊到跟你本人相关的事（你在玩的游戏、你的学校课程）→ 可以插一句。\n'
+            sys += f'2. 有人明确聊到跟你本人相关的事（{_SILENT_RELATED}）→ 可以插一句。\n'
             sys += '群友聊吃什么、天气、无聊、八卦、别人的事 → 全部 [SILENT]。\n'
             sys += '例：\n'
             sys += '对方：今天天气不错\n你：[SILENT]\n\n'
             sys += '对方：中午吃什么\n你：[SILENT]\n\n'
             sys += '对方：好无聊啊\n你：[SILENT]\n\n'
-            sys += '对方：有人打游戏吗\n你：有，我打\n\n'
+            sys += f'{_SILENT_GAME_EXAMPLE}\n\n'
             sys += '对方：你作业写了吗\n你：没写\n'
         if facts:
             sys += '\n\n【你的偏好（问「喜欢/会/爱玩吗」就按这些答）：' + '；'.join(f for f, _s in facts) + '】\n'

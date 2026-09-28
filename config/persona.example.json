@@ -4,5 +4,11 @@
   "address_words": ["名字", "昵称"],
   "other_names": ["群友A", "群友B"],
   "groups": [123456789],
-  "chat_senders": ["对方在聊天记录里的发送人名字"]
+  "chat_senders": ["对方在聊天记录里的发送人名字"],
+  "prompt_hints": {
+    "recall_claim_examples": "比如「你以前…」「我们是不是同学」「你玩不玩游戏」",
+    "recall_keyword_examples": "如「游戏」「女朋友」「学校」",
+    "silent_related": "你在玩的游戏、你的学校课程",
+    "silent_game_example": "对方：有人打游戏吗\n你：有，我打"
+  }
 }
