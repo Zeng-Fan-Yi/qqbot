@@ -1,0 +1,8 @@
+{
+  "name": "你的朋友",
+  "nicknames": ["他/她的外号"],
+  "address_words": ["名字", "昵称"],
+  "other_names": ["群友A", "群友B"],
+  "groups": [123456789],
+  "chat_senders": ["对方在聊天记录里的发送人名字"]
+}

@@ -1,0 +1,41 @@
+# QQ 分身机器人部署（nonebot + SnowLuma 协议端）
+services:
+  nonebot:
+    build: .
+    env_file:
+      - .env                # 提供 DEEPSEEK_*/QWEN_* 等密钥（不入镜像）
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+    volumes:
+      - ./data:/app/data        # 风格/记忆索引与事实持久化
+      - ./config:/app/config    # 身份配置（persona.json，隐私不入 git）
+    restart: always
+
+  snowluma:
+    # 协议端（QQ 登录）。SnowLuma 注入桌面版 QQ（有虚拟屏），比 NapCat 的无头 QQ 更稳。
+    image: motricseven7/snowluma:latest
+    restart: always
+    environment:
+      SNOWLUMA_WEBUI_HOST: 0.0.0.0
+      SNOWLUMA_WEBUI_PORT: 5099
+      SNOWLUMA_QQ_FLAGS: "--disable-gpu --disable-software-rasterizer --disable-gpu-compositing"
+      TZ: Asia/Shanghai
+    ports:
+      - "6081:6081"         # noVNC 远程桌面（扫码登录用）
+      - "5099:5099"         # SnowLuma WebUI（配 OneBot）
+    shm_size: 1g
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 1048576
+    volumes:
+      - ./snowluma-data:/app/data
+      - ./snowluma-config:/app/.config
+      - ./snowluma-local:/app/.local/share
+    depends_on:
+      - nonebot

@@ -1,0 +1,34 @@
+# ===== 隐私信息（绝不上传）=====
+
+# API 密钥
+.env
+
+# 人格身份配置与调校提示词（隐私，用 config/*.example.* 作为模板）
+config/*
+!config/*.example.*
+
+# 聊天记录与蒸馏产物（隐私）
+data/
+
+# 部署脚本（含服务器 IP/密码）
+tools/
+
+# 临时扫码图
+qr_login.png
+
+# 参考项目（独立 git 仓库，不作为本仓库内容）
+reference/
+
+# ===== 运行时/本地产物 =====
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+state/
+
+# 协议端数据卷（本地运行产生）
+napcat-data/
+snowluma-data/
+snowluma-config/
+snowluma-local/

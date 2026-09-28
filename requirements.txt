@@ -1,0 +1,11 @@
+# QQ 分身机器人运行时依赖
+# 说明：检索用的是纯标准库的字符 n-gram TF-IDF（src/retrieval.py，零第三方依赖），
+#       对中位 4 字的短句比 jieba 分词更准，因此不需要 jieba / scikit-learn / numpy。
+#       若后续语义召回不够，可再补 jieba（分词）或 embedding。
+
+# 机器人框架（阶段 3 接入时安装）
+nonebot2[fastapi]>=2.3.0
+nonebot-adapter-onebot>=2.4.0
+
+# LLM HTTP 客户端（接入 NoneBot2 时用；离线评测脚本暂用标准库 urllib，零依赖）
+httpx>=0.27.0
