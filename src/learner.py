@@ -34,10 +34,33 @@ EXTRACT_PROMPT = (
 )
 
 
+FILTER_PROMPT = (
+    '看下面这段群聊，判断里面有没有值得长期记住的稳定信息'
+    '（聊到的具体知识/事实、谁是谁、谁和谁什么关系、偏好、计划）。只输出：有 或 无。\n'
+    '以下都算「无」：纯寒暄、纯情绪、纯表情、纯问题/反问（谁问谁什么）、一次性话题、开玩笑、吹牛。\n'
+)
+
+
+def _has_learnable(text: str, provider='deepseek'):
+    """第一步：筛选——这段群聊有没有值得学的。"""
+    if not (text or '').strip():
+        return False
+    client = LLMClient(provider, temperature=0.1, max_tokens=4)
+    try:
+        out = client.chat([{'role': 'user', 'content': FILTER_PROMPT + text}])
+        return (out or '').strip().startswith('有')
+    except Exception:
+        return False
+
+
 def extract_facts(text: str, provider='deepseek'):
-    """从群聊文本抽取事实列表 [{fact, topic}]；失败返回 []。"""
+    """从群聊文本抽取事实列表 [{fact, topic}]；失败返回 []。先筛选再提炼。"""
     if not (text or '').strip():
         return []
+    # 第一步：筛选（没有值得学的就直接跳过，省一次大调用）
+    if not _has_learnable(text, provider):
+        return []
+    # 第二步：提炼
     client = LLMClient(provider, temperature=0.2, max_tokens=800)
     try:
         out = client.chat([{'role': 'user', 'content': EXTRACT_PROMPT + text}])

@@ -39,19 +39,28 @@ _REAL_SELF_NOTE = _HINTS.get('real_self_note', '')
 
 # 第一步「判断要不要回」的独立提示词——只做判断，不带风格/记忆，避免注意力被稀释。
 JUDGE_SYS = (
-    '你是 QQ 群里的一个成员（模仿真人的分身）。现在只判断一件事：要不要在群里插话回复。\n'
-    '只输出一个字：「回」或「不」，别输出别的字。\n'
+    '你是 QQ 群里的一个成员（模仿真人的分身）。判断这一条要不要回、怎么回。\n'
+    '只输出一个词，从这几个里选：不 / 认真答 / 怼 / 追问 / 短回\n'
     '规则：\n'
-    f'- 有人 @ 你、点名你（{_ADDRESS_STR}）、或明显在直接跟你说话 → 回。\n'
-    f'- 有人聊到跟你本人相关的事（{_SILENT_RELATED}），且你不是纯旁观 → 回。\n'
-    '- 其余一律「不」：\n'
-    '  · 别人在互相聊天、你不是对话方（只是旁观）；\n'
-    '  · 别人 @ 的是别人；\n'
-    '  · 寒暄、感叹、表情、接龙、别人的事、八卦；\n'
-    '  · 别人聊天里的「你」指的是群里另一个人（刚才在 @ 他、跟他对话）。\n'
+    f'- 有人 @ 你、点名你（{_ADDRESS_STR}）、或明显在直接跟你说话 → 回（选后四个之一）。\n'
+    '- 别人在互相聊天、你不是对话方、别人 @ 的是别人、寒暄/感叹/表情/接龙/别人的事 → 不。\n'
+    '- 对方在问你问题/聊具体事、需要实质内容 → 认真答。\n'
+    '- 对方吹牛/装/挑衅/骂你 → 怼。\n'
+    '- 对方说了个事/陈述、你想接着问 → 追问。\n'
+    '- 对方报喜/简单确认/寒暄（且该回）→ 短回。\n'
+    f'- 有人聊到跟你本人相关的事（{_SILENT_RELATED}），且你不是纯旁观 → 认真答或怼。\n'
 )
 if _REAL_SELF_NOTE:
     JUDGE_SYS += f'- {_REAL_SELF_NOTE}\n'
+
+# 定调 → 回复提示 + 对应 few-shot 类别
+TONE_HINT = {
+    '认真答': '给实质内容，认真回答对方的问题/聊的具体事，别敷衍',
+    '怼': '直接怼回去，狠一点、别客气',
+    '追问': '接着问一句（咋了/然后呢/为啥）',
+    '短回': '简短应一声（不错/确实/哦），别硬聊',
+}
+TONE_TO_CAT = {'认真答': 'long', '怼': 'chal', '追问': 'ask', '短回': 'ack'}
 
 # 系统提示词放在 config/system_prompt.txt（隐私、不入库），
 # 没有该文件时回退到 config/system_prompt.example.txt（通用模板）。
@@ -99,14 +108,15 @@ class Persona:
         self.static_block = self._build_static_block()
         self.index = TfidfIndex.load(INDEX_FILE) if INDEX_FILE.exists() else None
 
-    def _build_static_block(self, per_cat=3):
+    def _build_static_block(self, per_cat=3, cats=None):
         if not FEWSHOT_JSON.exists():
             return ''
         fewshot = json.loads(FEWSHOT_JSON.read_text(encoding='utf-8'))
         names = {'ack': '应答', 'agree': '认同', 'chal': '怼人', 'ask': '追问',
                  'deny': '否定', 'long': '长句', 'other': '其他'}
+        cats = cats or ('ack', 'agree', 'chal', 'ask', 'deny', 'long', 'other')
         block = ''
-        for cat in ('ack', 'agree', 'chal', 'ask', 'deny', 'long', 'other'):
+        for cat in cats:
             ex = fewshot.get(cat, [])[:per_cat]
             if not ex:
                 continue
@@ -167,32 +177,44 @@ class Persona:
             msgs2, order=order, temperature=self.temperature, max_tokens=80)
         return provider2, guard(raw)
 
-    def _should_reply(self, history) -> bool:
-        """第一步：只看最近对话流，独立判断要不要插话（轻量、低温度）。"""
+    def _judge(self, history):
+        """第一步：只看最近对话流，判断要不要回 + 怎么回。返回 (是否回, 定调)。"""
         ctx = '\n'.join(f'{s}: {t}' for s, t in history[-15:])
         fallback = 'qwen' if self.provider == 'deepseek' else 'deepseek'
         _p, out = chat_with_fallback(
             [{'role': 'system', 'content': JUDGE_SYS},
-             {'role': 'user', 'content': f'【最近群聊】\n{ctx}\n\n判断（只输出「回」或「不」）：'}],
+             {'role': 'user', 'content': f'【最近群聊】\n{ctx}\n\n判断（只输出一个词）：'}],
             order=(self.provider, fallback), temperature=0.2, max_tokens=8)
-        return (out or '').strip().startswith('回')
+        out = (out or '').strip()
+        if not out or out.startswith('不'):
+            return False, ''
+        for t in ('认真答', '追问', '怼', '短回'):
+            if t in out:
+                return True, t
+        return True, '认真答'
 
     def reply_group(self, history, memory, must_reply=False):
-        """群聊回复：先判断要不要回，再生成回复（两步分离，避免注意力稀释）。
+        """群聊回复：先判断要不要回+怎么回，再生成回复（两步分离，避免注意力稀释）。
 
-        - 第一步：must_reply=True（被@）必回；否则独立调用判断要不要插话；
-        - 第二步：真的要回时，才组装风格提示词 + 记忆 + 上下文生成回复。
+        - 第一步：must_reply=True（被@）必回；否则独立调用判断要不要插话、怎么回；
+        - 第二步：真的要回时，只注入相关类别的 few-shot + 记忆 + 最近 20 条上下文生成回复。
         """
         if not history:
             return self.provider, ''
         _sender, last_text = history[-1]
 
-        # 第一步：判断要不要回
-        if not must_reply and not self._should_reply(history):
-            return self.provider, '[SILENT]'
+        # 第一步：判断要不要回 + 怎么回
+        tone = ''
+        if must_reply:
+            tone = '认真答'
+        else:
+            should_reply, tone = self._judge(history)
+            if not should_reply:
+                return self.provider, '[SILENT]'
 
-        # 第二步：生成回复（到这里已经确定要回了）
-        sys = SYSTEM_PROMPT + self.static_block
+        # 第二步：生成回复（到这里已经确定要回）
+        cats = [TONE_TO_CAT.get(tone)] if tone in TONE_TO_CAT else None
+        sys = SYSTEM_PROMPT + self._build_static_block(cats=cats)
         # 先召回记忆（每次都用整句话检索）
         facts = memory.recall(last_text, top_n=3) if memory else []
         # 动态 few-shot：只在没有相关记忆时注入，避免「风格示例」和「记忆事实」打架
@@ -202,10 +224,12 @@ class Persona:
                 sys += '\n【你历史上面对类似的话是这么回的——学他的语气和长短（他回长你就说长、回短你就说短），但内容针对当前对话用自己的话答、换个说法，别逐字抄】\n'
                 for prev, meta, _s in hits:
                     sys += _fmt_pair(prev, meta['reply']) + '\n'
-        ctx = '\n'.join(f'{s}: {t}' for s, t in history[-50:])
+        ctx = '\n'.join(f'{s}: {t}' for s, t in history[-20:])
         sys += f'\n\n【最近的群聊记录（知道在聊什么）】\n{ctx}'
         if must_reply:
             sys += '\n\n对方 @ 了你或点名了你，必须回。如果是在问你问题，认真回答（知道就答，不知道就说不知道），别回「哦」敷衍。'
+        if tone in TONE_HINT:
+            sys += f'\n\n定调：{tone}——{TONE_HINT[tone]}。'
         if facts:
             sys += '\n\n【你的偏好（问「喜欢/会/爱玩吗」就按这些答）：' + '；'.join(f for f, _s in facts) + '】\n'
             sys += '注意：对方问「玩不玩/玩吗/打不打」时（没提「喜欢/爱玩」），一般是在问「现在」→ 按当下答（你比较被动 → 「不玩」「没玩」），别说「平时不玩」这种否定偏好的话。问「喜欢/爱玩吗」才按上面的偏好答。'
