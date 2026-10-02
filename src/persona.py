@@ -37,6 +37,22 @@ _SILENT_RELATED = _HINTS.get('silent_related', '你在玩的游戏、你的学�
 _SILENT_GAME_EXAMPLE = _HINTS.get('silent_game_example', '对方：有人打游戏吗\n你：有，我打')
 _REAL_SELF_NOTE = _HINTS.get('real_self_note', '')
 
+# 第一步「判断要不要回」的独立提示词——只做判断，不带风格/记忆，避免注意力被稀释。
+JUDGE_SYS = (
+    '你是 QQ 群里的一个成员（模仿真人的分身）。现在只判断一件事：要不要在群里插话回复。\n'
+    '只输出一个字：「回」或「不」，别输出别的字。\n'
+    '规则：\n'
+    f'- 有人 @ 你、点名你（{_ADDRESS_STR}）、或明显在直接跟你说话 → 回。\n'
+    f'- 有人聊到跟你本人相关的事（{_SILENT_RELATED}），且你不是纯旁观 → 回。\n'
+    '- 其余一律「不」：\n'
+    '  · 别人在互相聊天、你不是对话方（只是旁观）；\n'
+    '  · 别人 @ 的是别人；\n'
+    '  · 寒暄、感叹、表情、接龙、别人的事、八卦；\n'
+    '  · 别人聊天里的「你」指的是群里另一个人（刚才在 @ 他、跟他对话）。\n'
+)
+if _REAL_SELF_NOTE:
+    JUDGE_SYS += f'- {_REAL_SELF_NOTE}\n'
+
 # 系统提示词放在 config/system_prompt.txt（隐私、不入库），
 # 没有该文件时回退到 config/system_prompt.example.txt（通用模板）。
 # 这样可以在不改代码的情况下，保留目标人物专属的调校效果。
@@ -151,16 +167,31 @@ class Persona:
             msgs2, order=order, temperature=self.temperature, max_tokens=80)
         return provider2, guard(raw)
 
-    def reply_group(self, history, memory, must_reply=False):
-        """群聊回复：history=[(sender, text)]，末条是当前触发消息。返回 (provider, reply)。
+    def _should_reply(self, history) -> bool:
+        """第一步：只看最近对话流，独立判断要不要插话（轻量、低温度）。"""
+        ctx = '\n'.join(f'{s}: {t}' for s, t in history[-15:])
+        fallback = 'qwen' if self.provider == 'deepseek' else 'deepseek'
+        _p, out = chat_with_fallback(
+            [{'role': 'system', 'content': JUDGE_SYS},
+             {'role': 'user', 'content': f'【最近群聊】\n{ctx}\n\n判断（只输出「回」或「不」）：'}],
+            order=(self.provider, fallback), temperature=0.2, max_tokens=8)
+        return (out or '').strip().startswith('回')
 
-        - 注入最近 50 条群聊上下文；
-        - must_reply=True（被@）必回；否则允许回 [SILENT] 潜水；
-        - 仍按需走 recall_memory 工具召回记忆。
+    def reply_group(self, history, memory, must_reply=False):
+        """群聊回复：先判断要不要回，再生成回复（两步分离，避免注意力稀释）。
+
+        - 第一步：must_reply=True（被@）必回；否则独立调用判断要不要插话；
+        - 第二步：真的要回时，才组装风格提示词 + 记忆 + 上下文生成回复。
         """
         if not history:
             return self.provider, ''
         _sender, last_text = history[-1]
+
+        # 第一步：判断要不要回
+        if not must_reply and not self._should_reply(history):
+            return self.provider, '[SILENT]'
+
+        # 第二步：生成回复（到这里已经确定要回了）
         sys = SYSTEM_PROMPT + self.static_block
         # 先召回记忆（每次都用整句话检索）
         facts = memory.recall(last_text, top_n=3) if memory else []
@@ -175,26 +206,6 @@ class Persona:
         sys += f'\n\n【最近的群聊记录（知道在聊什么）】\n{ctx}'
         if must_reply:
             sys += '\n\n对方 @ 了你或点名了你，必须回。如果是在问你问题，认真回答（知道就答，不知道就说不知道），别回「哦」敷衍。'
-        else:
-            sys += '\n\n【要不要回？重要：你在群里大部分时候不说话，宁可潜水也别插嘴】\n'
-            sys += '绝大多数群消息都回 [SILENT]（就这三个字母，别输出别的字，更别输出「无视」）。只有两种情况才开口：\n'
-            sys += f'1. 有人叫你/点名你（{_ADDRESS_STR}、@你），或明显在直接跟你说话 → 回。\n'
-            sys += f'2. 有人明确聊到跟你本人相关的事（{_SILENT_RELATED}）→ 可以插一句。\n'
-            sys += '以下一律 [SILENT]：\n'
-            sys += '- 对方 @ 的是别人（不是你）→ [SILENT]。\n'
-            sys += '- 看最近几条的对话流：如果一直是别人在互相聊天（来回接话、你不是对话方、没人跟你说话），就算话题沾边也 [SILENT]，别硬挤进去。\n'
-            sys += '- 注意「你」指代：别人聊天里的「你」若指的是群里另一个人（刚才在 @ 他、跟他对话），那不是跟你说话 → [SILENT]。\n'
-            sys += '- 群友聊吃什么、天气、无聊、八卦、别人的事、感叹、表情、接龙 → [SILENT]。\n'
-            sys += '- 只是寒暄/一句感叹/一个表情，没具体事、没问你 → [SILENT]。\n'
-            if _REAL_SELF_NOTE:
-                sys += f'- {_REAL_SELF_NOTE}\n'
-            sys += '例：\n'
-            sys += '对方：今天天气不错\n你：[SILENT]\n\n'
-            sys += '对方：中午吃什么\n你：[SILENT]\n\n'
-            sys += '对方：好无聊啊\n你：[SILENT]\n\n'
-            sys += '对方：@张三 你去不去\n你：[SILENT]\n\n'
-            sys += f'{_SILENT_GAME_EXAMPLE}\n\n'
-            sys += '对方：你作业写了吗\n你：没写\n'
         if facts:
             sys += '\n\n【你的偏好（问「喜欢/会/爱玩吗」就按这些答）：' + '；'.join(f for f, _s in facts) + '】\n'
             sys += '注意：对方问「玩不玩/玩吗/打不打」时（没提「喜欢/爱玩」），一般是在问「现在」→ 按当下答（你比较被动 → 「不玩」「没玩」），别说「平时不玩」这种否定偏好的话。问「喜欢/爱玩吗」才按上面的偏好答。'
