@@ -16,12 +16,19 @@ _PERSONA = load_persona()
 _NAME = _PERSONA['name']
 
 EXTRACT_PROMPT = (
-    '从下面这段群聊里，提取值得长期记住的稳定信息（关于群里的人、他们的关系、'
-    f'正在发生/计划中的事、以及「{_NAME}」自己透露的新信息）。只输出 JSON 数组（不要解释）：\n'
-    '[{"fact": "短句", "topic": "人物|关系|事件|计划|偏好|其他"}]\n'
+    f'从下面这段群聊里，提取值得长期记住的稳定信息，存进「{_NAME}」的记忆（之后被问到时能据此回答）。'
+    '只输出 JSON 数组（不要解释）：\n'
+    '[{"fact": "短句", "topic": "人物|关系|偏好|知识|事件|计划|其他"}]\n'
     '规则：\n'
-    f'- fact ≤20 字，站在{_NAME}视角写，例如「张三要去北京实习」「我和李四组队打游戏」。\n'
-    '- 只记稳定/有用的信息；玩笑、寒暄、一次性话题、纯情绪，不记。\n'
+    f'- 站在「{_NAME}」的视角写，fact ≤20 字。\n'
+    '- 重点学【知识/事实】：大家聊到的具体内容，比如三国杀有多少武将、某游戏怎么玩、某门课什么内容。'
+    '例：「三国杀武将大约五百到一千个」「造梦西游要先下载」「科一考交通法规」。\n'
+    f'- 也学【人物/关系/偏好】：谁是谁、谁和谁什么关系、{_NAME} 喜欢/会/爱玩什么。\n'
+    '- 只记稳定、以后用得到的信息；以下一律输出 {"fact": null}：\n'
+    '  ① 纯问题/反问（谁问谁什么）、打招呼、寒暄、纯情绪、纯表情；\n'
+    '  ② 一次性话题（今天吃啥、临时约局）；\n'
+    f'  ③ {_NAME} 自己刚说过的话（那是它说的话，不是事实）；\n'
+    '  ④ 开玩笑、打情骂俏、吹牛。\n'
     '- 没有可记的就输出 []。\n'
     '输入群聊：\n'
 )
@@ -55,7 +62,7 @@ def learn_from_text(memory, text, provider='deepseek'):
     for f in new_facts:
         if any(old['fact'] == f['fact'] for old in memory.facts):
             continue
-        memory.add_fact(f['fact'], f['topic'])
+        memory.add_fact(f['fact'], f['topic'], src='dynamic')
         added += 1
     if added:
         memory.rebuild()

@@ -9,6 +9,7 @@
 
 import asyncio
 import random
+import re
 import time
 from collections import defaultdict, deque
 
@@ -58,6 +59,30 @@ def _sender_name(event: GroupMessageEvent) -> str:
         return str(event.user_id)
 
 
+_SILENT_CORES = {'SILENT', '无视', '沉默', '不回', '不回复', '不插嘴'}
+
+
+def _is_silent(reply: str) -> bool:
+    """判断模型输出是否表示「不回复」。兼容 [SILENT] / 【无视】/ 无视 等写法。"""
+    r = (reply or '').strip().replace('【', '[').replace('】', ']')
+    core = r.strip('[]').strip().upper()
+    return core == '' or core in _SILENT_CORES
+
+
+def _has_other_at(event: GroupMessageEvent) -> bool:
+    """消息是否 @ 了别人（非 bot 自己）→ 这种是别人在点名别人，不插嘴。"""
+    try:
+        for seg in event.get_message():
+            if seg.type == 'at' and str(seg.data.get('qq', '')) != str(event.self_id):
+                return True
+    except Exception:
+        pass
+    for m in re.finditer(r'\[at:qq=(\d+)\]', str(event.original_message)):
+        if m.group(1) != str(event.self_id):
+            return True
+    return False
+
+
 async def _learn(gid):
     """动态学习：抽最近群聊里的稳定事实，追加进记忆（线程池跑，避免阻塞事件循环）。"""
     now = time.time()
@@ -67,7 +92,7 @@ async def _learn(gid):
     ctx = list(contexts[gid])
     if len(ctx) < 3:
         return
-    text = '\n'.join(f'{s}: {t}' for s, t in ctx)
+    text = '\n'.join(f'{s}: {t}' for s, t in ctx if s != _NAME)  # 排除 bot 自己说过的话
     loop = asyncio.get_running_loop()
     try:
         added = await loop.run_in_executor(None, learn_from_text, memory, text)
@@ -177,11 +202,15 @@ async def handle(bot: Bot, event: GroupMessageEvent):
     if not is_at and any(n in text for n in OTHER_NAMES) and '你' not in text:
         return
 
+    # @ 了别人（不是自己）→ 别人在点名别人，不插嘴
+    if not is_at and _has_other_at(event):
+        return
+
     # 每条群消息都交给 LLM 判断回不回
     history = list(contexts[gid])
     _provider, reply = persona.reply_group(history, memory, must_reply=is_at)
     reply = (reply or '').strip()
-    if not reply or reply.upper() == '[SILENT]':
+    if _is_silent(reply):
         return
 
     # 连发：按换行拆成多条消息，模拟人类一条一条发
