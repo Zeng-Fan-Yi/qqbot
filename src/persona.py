@@ -35,6 +35,7 @@ _RECALL_CLAIM = _HINTS.get('recall_claim_examples', '比如「你以前…」「
 _RECALL_KEYWORD = _HINTS.get('recall_keyword_examples', '如「游戏」「女朋友」「学校」')
 _SILENT_RELATED = _HINTS.get('silent_related', '你在玩的游戏、你的学校课程')
 _SILENT_GAME_EXAMPLE = _HINTS.get('silent_game_example', '对方：有人打游戏吗\n你：有，我打')
+_REAL_SELF_NOTE = _HINTS.get('real_self_note', '')
 
 # 系统提示词放在 config/system_prompt.txt（隐私、不入库），
 # 没有该文件时回退到 config/system_prompt.example.txt（通用模板）。
@@ -181,8 +182,12 @@ class Persona:
             sys += f'2. 有人明确聊到跟你本人相关的事（{_SILENT_RELATED}）→ 可以插一句。\n'
             sys += '以下一律 [SILENT]：\n'
             sys += '- 对方 @ 的是别人（不是你）→ [SILENT]。\n'
+            sys += '- 看最近几条的对话流：如果一直是别人在互相聊天（来回接话、你不是对话方、没人跟你说话），就算话题沾边也 [SILENT]，别硬挤进去。\n'
+            sys += '- 注意「你」指代：别人聊天里的「你」若指的是群里另一个人（刚才在 @ 他、跟他对话），那不是跟你说话 → [SILENT]。\n'
             sys += '- 群友聊吃什么、天气、无聊、八卦、别人的事、感叹、表情、接龙 → [SILENT]。\n'
             sys += '- 只是寒暄/一句感叹/一个表情，没具体事、没问你 → [SILENT]。\n'
+            if _REAL_SELF_NOTE:
+                sys += f'- {_REAL_SELF_NOTE}\n'
             sys += '例：\n'
             sys += '对方：今天天气不错\n你：[SILENT]\n\n'
             sys += '对方：中午吃什么\n你：[SILENT]\n\n'
