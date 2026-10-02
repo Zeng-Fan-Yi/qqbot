@@ -40,16 +40,15 @@ _REAL_SELF_NOTE = _HINTS.get('real_self_note', '')
 # 第一步「判断要不要回」的独立提示词——只做判断，不带风格/记忆，避免注意力被稀释。
 JUDGE_SYS = (
     '你是 QQ 群里的一个成员（模仿真人的分身）。判断这一条要不要回、怎么回。\n'
+    f'你在群里的名字叫「{_NAME}」，聊天记录里出现「{_NAME}: xxx」就是你（这个分身）自己说的话。\n'
     '只输出一个词，从这几个里选：不 / 认真答 / 怼 / 追问 / 短回\n'
-    '规则：\n'
-    f'- 有人 @ 你、点名你（{_ADDRESS_STR}）、或明显在直接跟你说话 → 回（选后四个之一）。\n'
+    '规则（按顺序判断）：\n'
+    f'- 有人 @ 你、点名你（{_ADDRESS_STR}）、或明显在直接跟你说话 → 回。\n'
     '- 如果上一句是「你」自己说的话，对方接着这个话题继续问/说 → 这是在跟你说话 → 回。\n'
-    '- 别人在互相聊天、你不是对话方、别人 @ 的是别人、寒暄/感叹/表情/接龙/别人的事 → 不。\n'
-    '- 对方在问你问题/聊具体事、需要实质内容 → 认真答。\n'
-    '- 对方吹牛/装/挑衅/骂你 → 怼。\n'
-    '- 对方说了个事/陈述、你想接着问 → 追问。\n'
-    '- 对方报喜/简单确认/寒暄（且该回）→ 短回。\n'
-    f'- 有人聊到跟你本人相关的事（{_SILENT_RELATED}），且你不是纯旁观 → 认真答或怼。\n'
+    f'- 别人在聊跟你本人强相关的话题（{_SILENT_RELATED}），且你对这个话题有真东西可说 → 插一句。\n'
+    '- 别人在互相聊别的（吃啥、天气、八卦、别人的事）、寒暄、感叹、表情、接龙 → 不。\n'
+    '- 别人 @ 的是别人（不是你）→ 不。\n'
+    '怎么回：对方问问题/聊具体事→认真答；吹牛/装/挑衅/骂你→怼；说了个事你想接着问→追问；报喜/简单确认/寒暄→短回。\n'
 )
 if _REAL_SELF_NOTE:
     JUDGE_SYS += f'- {_REAL_SELF_NOTE}\n'
@@ -194,26 +193,9 @@ class Persona:
                 return True, t
         return True, '认真答'
 
-    def reply_group(self, history, memory, must_reply=False):
-        """群聊回复：先判断要不要回+怎么回，再生成回复（两步分离，避免注意力稀释）。
-
-        - 第一步：must_reply=True（被@）必回；否则独立调用判断要不要插话、怎么回；
-        - 第二步：真的要回时，只注入相关类别的 few-shot + 记忆 + 最近 20 条上下文生成回复。
-        """
-        if not history:
-            return self.provider, ''
+    def _generate(self, history, memory, tone, must_reply=False):
+        """第二步：按定调生成回复（不判断）。只注入相关类别 few-shot + 记忆 + 最近 20 条上下文。"""
         _sender, last_text = history[-1]
-
-        # 第一步：判断要不要回 + 怎么回
-        tone = ''
-        if must_reply:
-            tone = '认真答'
-        else:
-            should_reply, tone = self._judge(history)
-            if not should_reply:
-                return self.provider, '[SILENT]'
-
-        # 第二步：生成回复（到这里已经确定要回）
         cats = [TONE_TO_CAT.get(tone)] if tone in TONE_TO_CAT else None
         sys = SYSTEM_PROMPT + self._build_static_block(cats=cats)
         # 先召回记忆（每次都用整句话检索）
@@ -241,3 +223,16 @@ class Persona:
         provider, content = chat_with_fallback(
             msgs, order=order, temperature=self.temperature, max_tokens=80)
         return provider, guard(content)
+
+    def reply_group(self, history, memory, must_reply=False):
+        """群聊回复：先判断要不要回+怎么回，再生成回复（两步分离，避免注意力稀释）。"""
+        if not history:
+            return self.provider, ''
+        tone = ''
+        if must_reply:
+            tone = '认真答'
+        else:
+            should_reply, tone = self._judge(history)
+            if not should_reply:
+                return self.provider, '[SILENT]'
+        return self._generate(history, memory, tone, must_reply)
