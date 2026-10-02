@@ -206,6 +206,14 @@ async def handle(bot: Bot, event: GroupMessageEvent):
     if not is_at and _has_other_at(event):
         return
 
+    # 主动插嘴频率控制：最近 6 条里已经发过言，就不再主动插嘴（@/点名仍必回）；
+    # 但上一条紧挨着就是 bot 自己说的（对方在接 bot 的话）→ 不算主动插嘴，允许回。
+    if not is_at:
+        _c = list(contexts[gid])
+        _prev_is_me = len(_c) >= 2 and _c[-2][0] == _NAME
+        if not _prev_is_me and any(s == _NAME for s, _t in _c[-6:]):
+            return
+
     # 每条群消息都交给 LLM 判断回不回
     history = list(contexts[gid])
     _provider, reply = persona.reply_group(history, memory, must_reply=is_at)

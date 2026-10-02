@@ -85,6 +85,44 @@ SCENARIOS = [
             ('曾凡义', '说啊', False),
         ],
     },
+    {
+        'name': '8. 多人刷屏聊原神（该克制，偶尔插一句）',
+        'messages': [
+            ('曾凡义', '原神5.0新角色你们抽了吗', False),
+            ('徐飞扬', '抽了，歪了', False),
+            ('猫粮孝子', '我也歪了', False),
+            ('曾凡义', '我大保底出的', False),
+            ('徐飞扬', '牛', False),
+            ('曾凡义', '新地图探索了吗', False),
+            ('猫粮孝子', '还没，这周末肝', False),
+            ('曾凡义', '一起啊', False),
+        ],
+    },
+    {
+        'name': '9. 相关话题聊很久（bot 别每条都接）',
+        'messages': [
+            ('曾凡义', '三国杀军八谁最强', False),
+            ('徐飞扬', '神曹操', False),
+            ('猫粮孝子', '神司马懿也猛', False),
+            ('曾凡义', '那界黄盖呢', False),
+            ('徐飞扬', '界黄盖苦肉强', False),
+            ('曾凡义', '还有神吕布', False),
+            ('猫粮孝子', '神吕布单挑不行', False),
+            ('曾凡义', '你们谁玩', False),
+            ('徐飞扬', '我偶尔玩', False),
+            ('猫粮孝子', '我也玩', False),
+        ],
+    },
+    {
+        'name': '10. 别人吹牛后继续吹（bot 该怼一两次，别每条都怼）',
+        'messages': [
+            ('徐飞扬', '我昨天通宵肝完了', False),
+            ('曾凡义', '牛啊', False),
+            ('徐飞扬', '还顺手做了个视频', False),
+            ('曾凡义', '真的假的', False),
+            ('徐飞扬', '真的，三连了都', False),
+        ],
+    },
 ]
 
 
@@ -105,6 +143,13 @@ def run_one(idx, scenario):
             should, tone = persona._judge(history)
             if not should:
                 print('    [判断: 潜水]')
+                continue
+            # 频率控制：最近 6 条里自己发过言就跳过（与插件逻辑一致）；
+            # 但上一条紧挨着是自己说的（对方在接话）→ 不拦。
+            _c = list(ctx)
+            _prev_is_me = len(_c) >= 2 and _c[-2][0] == BOT_NAME
+            if not _prev_is_me and any(s == BOT_NAME for s, _t in _c[-6:]):
+                print('    [频率控制: 最近发过言，跳过]')
                 continue
             print(f'    [判断: 回 / {tone}]')
         _p, reply = persona._generate(history, memory, tone, must_reply=at_bot)
