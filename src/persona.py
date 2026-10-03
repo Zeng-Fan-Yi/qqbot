@@ -37,11 +37,14 @@ _SILENT_RELATED = _HINTS.get('silent_related', '你在玩的游戏、你的学�
 _SILENT_GAME_EXAMPLE = _HINTS.get('silent_game_example', '对方：有人打游戏吗\n你：有，我打')
 _REAL_SELF_NOTE = _HINTS.get('real_self_note', '')
 _RELATED_KWS = _HINTS.get('related_keywords', [])
+_MEMBERS = _PERSONA.get('group_members', {})
+_MEMBERS_STR = '、'.join(_MEMBERS.values())
 
 # 第一步「判断要不要回」的独立提示词——只做判断，不带风格/记忆，避免注意力被稀释。
 JUDGE_SYS = (
     '你是 QQ 群里的一个成员（模仿真人的分身）。判断这一条要不要回、怎么回。\n'
     f'你在群里的名字叫「{_NAME}」，聊天记录里出现「{_NAME}: xxx」就是你（这个分身）自己说的话。\n'
+    f'群成员：{_MEMBERS_STR}（聊天记录里的发送人名字，消息里 @xxx 的 xxx 就是这些人）。\n'
     '只输出一个词，从这几个里选：不 / 认真答 / 怼 / 追问 / 短回\n'
     '规则（按顺序判断）：\n'
     f'- 有人 @ 你、点名你（{_ADDRESS_STR}）、或明显在直接跟你说话 → 回。\n'
@@ -180,7 +183,7 @@ class Persona:
 
     def _judge(self, history):
         """第一步：只看最近对话流，判断要不要回 + 怎么回。返回 (是否回, 定调)。"""
-        ctx = '\n'.join(f'{s}: {t}' for s, t in history[-15:])
+        ctx = '\n'.join(f'{s}: {t}' for s, t in history[-20:])
         last_text = history[-1][1] if history else ''
         related = any(k in last_text for k in _RELATED_KWS)
         hint = '\n（提示：这条消息涉及你熟悉的话题，大概率该插一句）' if related else ''

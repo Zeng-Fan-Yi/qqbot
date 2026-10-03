@@ -25,6 +25,7 @@ from src.persona import Persona
 
 _PERSONA = load_persona()
 _NAME = _PERSONA['name']
+_MEMBERS = _PERSONA.get('group_members', {})  # qq号 -> 名字，用于把 @ 解析成名字
 
 __plugin_meta__ = PluginMetadata(
     name="QQ 分身",
@@ -84,6 +85,23 @@ def _has_other_at(event: GroupMessageEvent) -> bool:
     return False
 
 
+def _full_text(event: GroupMessageEvent) -> str:
+    """拼出带 @ 的完整文本（@qq号 解析成 @名字），让模型知道这句是 @ 谁的。"""
+    parts = []
+    try:
+        for seg in event.get_message():
+            if seg.type == 'text':
+                parts.append(seg.data.get('text', ''))
+            elif seg.type == 'at':
+                qq = str(seg.data.get('qq', ''))
+                parts.append(f'@{_MEMBERS.get(qq, qq)}')
+            elif seg.type in ('image', 'face', 'record', 'video'):
+                parts.append(f'[{seg.type}]')
+    except Exception:
+        return (event.get_plaintext() or '').strip()
+    return ''.join(parts).strip()
+
+
 async def _learn(gid):
     """动态学习：抽最近群聊里的稳定事实，追加进记忆（线程池跑，避免阻塞事件循环）。"""
     now = time.time()
@@ -112,14 +130,15 @@ async def handle(bot: Bot, event: GroupMessageEvent):
     # 群白名单：非指定群直接忽略（不回复、不学习）
     if gid not in GROUP_WHITELIST:
         return
-    text = (event.get_plaintext() or '').strip()
+    text = _full_text(event)   # 带 @ 的完整文本（模型能看清这句 @ 谁）
+    plain = (event.get_plaintext() or '').strip()  # 不带 @，魔法指令用
 
     # 被 @ 或群里点名（address_words 里的词）→ 必回
     is_at = bool(getattr(event, 'is_tome', lambda: False)()) or any(w in text for w in ADDRESS_WORDS)
 
     # 魔法指令：@bot /memory 内容（加）/ del 关键词（删）/ list（列出额外学的记忆）
-    if is_at and text.startswith('/memory'):
-        arg = text[len('/memory'):].strip()
+    if is_at and plain.startswith('/memory'):
+        arg = plain[len('/memory'):].strip()
         if arg in ('list', '列表'):
             learned = [f for f in memory.facts if f.get('src') != 'curated']
             if not learned:
@@ -141,30 +160,30 @@ async def handle(bot: Bot, event: GroupMessageEvent):
         return
 
     # 开关指令：@bot /off 关闭、/on 开启
-    if is_at and text in ('/off', '/关闭', '/stop', '/停'):
+    if is_at and plain in ('/off', '/关闭', '/stop', '/停'):
         enabled = False
         await matcher.send(MessageSegment.text('关了'))
         return
-    if is_at and text in ('/on', '/开启', '/start', '/开'):
+    if is_at and plain in ('/on', '/开启', '/start', '/开'):
         enabled = True
         await matcher.send(MessageSegment.text('开了'))
         return
 
     # 帮助：列出所有指令
-    if is_at and text in ('/help', '/指令', '/帮助', '/菜单'):
+    if is_at and plain in ('/help', '/指令', '/帮助', '/菜单'):
         await matcher.send(MessageSegment.text(
             '/on 开启\n/off 关闭\n/memory 内容 加记忆\n/memory list 列记忆\n/memory del 词 删记忆\n/model deepseek|qwen 切模型\n/reset 失忆\n/status 状态\n/ping 在吗'))
         return
 
     # 状态
-    if is_at and text in ('/status', '/状态'):
+    if is_at and plain in ('/status', '/状态'):
         st = '开' if enabled else '关'
         await matcher.send(MessageSegment.text(f'状态：{st}｜模型：{persona.provider}｜记忆：{len(memory.facts)} 条'))
         return
 
     # 切模型
-    if is_at and text.startswith('/model'):
-        m = text[len('/model'):].strip().lower()
+    if is_at and plain.startswith('/model'):
+        m = plain[len('/model'):].strip().lower()
         if m in ('deepseek', 'qwen'):
             persona.provider = m
             await matcher.send(MessageSegment.text(f'已切到 {m}'))
@@ -173,13 +192,13 @@ async def handle(bot: Bot, event: GroupMessageEvent):
         return
 
     # 失忆：清空当前群上下文
-    if is_at and text in ('/reset', '/失忆'):
+    if is_at and plain in ('/reset', '/失忆'):
         contexts[gid].clear()
         await matcher.send(MessageSegment.text('忘了'))
         return
 
     # 健康检查
-    if is_at and text in ('/ping', '/在吗'):
+    if is_at and plain in ('/ping', '/在吗'):
         await matcher.send(MessageSegment.text('在'))
         return
 

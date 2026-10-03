@@ -5,6 +5,10 @@
   "other_names": ["群友A", "群友B"],
   "groups": [123456789],
   "chat_senders": ["对方在聊天记录里的发送人名字"],
+  "group_members": {
+    "123456789": "群友A",
+    "987654321": "群友B"
+  },
   "prompt_hints": {
     "recall_claim_examples": "比如「你以前…」「我们是不是同学」「你玩不玩游戏」",
     "recall_keyword_examples": "如「游戏」「女朋友」「学校」",
