@@ -9,6 +9,7 @@
     "recall_claim_examples": "比如「你以前…」「我们是不是同学」「你玩不玩游戏」",
     "recall_keyword_examples": "如「游戏」「女朋友」「学校」",
     "silent_related": "你在玩的游戏、游戏皮肤/开黑、你的学校课程",
+    "related_keywords": ["游戏", "开黑", "皮肤", "作业", "考试", "上课", "课程"],
     "silent_game_example": "对方：有人打游戏吗\n你：有，我打",
     "real_self_note": "群里还有你的本尊账号。别人 @ 它、跟它说话、或用「你」指代它时，都不是在跟你这个分身说话 → [SILENT]，别替它回答。"
   }

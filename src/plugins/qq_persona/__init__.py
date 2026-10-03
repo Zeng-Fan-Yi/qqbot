@@ -47,6 +47,7 @@ memory = MemoryStore()
 
 contexts = defaultdict(lambda: deque(maxlen=50))   # group_id -> [(sender, text)]
 last_learn = {}                                    # group_id -> 上次学习时间戳
+since_at = {}                                      # group_id -> 距上次被@/点名已过多少条消息
 _tasks = set()                                     # 持有后台学习任务的引用，防止被 GC
 
 matcher = on_message(priority=10, block=False)
@@ -194,6 +195,12 @@ async def handle(bot: Bot, event: GroupMessageEvent):
 
     contexts[gid].append((_sender_name(event), text))
 
+    # 更新「距上次被@」计数：被@则清零，否则累加
+    if is_at:
+        since_at[gid] = 0
+    else:
+        since_at[gid] = since_at.get(gid, 999) + 1
+
     # 纯结束语/语气词（"哦/嗯/好/哈哈"），没@没点名 → 不回（但已记入上下文）
     if not is_at and text in BARE_ACK:
         return
@@ -206,12 +213,11 @@ async def handle(bot: Bot, event: GroupMessageEvent):
     if not is_at and _has_other_at(event):
         return
 
-    # 主动插嘴频率控制：最近 6 条里已经发过言，就不再主动插嘴（@/点名仍必回）；
-    # 但上一条紧挨着就是 bot 自己说的（对方在接 bot 的话）→ 不算主动插嘴，允许回。
-    if not is_at:
+    # 主动插嘴频率控制：最近 6 条里已经发过言就不再主动插嘴；
+    # 但若最近 10 条内被 @/点名过（正在对话中），允许接话。
+    if not is_at and since_at.get(gid, 999) > 10:
         _c = list(contexts[gid])
-        _prev_is_me = len(_c) >= 2 and _c[-2][0] == _NAME
-        if not _prev_is_me and any(s == _NAME for s, _t in _c[-6:]):
+        if any(s == _NAME for s, _t in _c[-6:]):
             return
 
     # 每条群消息都交给 LLM 判断回不回

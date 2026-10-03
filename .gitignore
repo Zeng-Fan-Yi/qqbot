@@ -10,6 +10,9 @@ config/*
 # 聊天记录与蒸馏产物（隐私）
 data/
 
+# 从真实聊天记录挖出的测试场景（含隐私）
+src/scenarios_mined.py
+
 # 部署脚本（含服务器 IP/密码）
 tools/
 

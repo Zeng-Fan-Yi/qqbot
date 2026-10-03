@@ -36,6 +36,7 @@ _RECALL_KEYWORD = _HINTS.get('recall_keyword_examples', '如「游戏」「女�
 _SILENT_RELATED = _HINTS.get('silent_related', '你在玩的游戏、你的学校课程')
 _SILENT_GAME_EXAMPLE = _HINTS.get('silent_game_example', '对方：有人打游戏吗\n你：有，我打')
 _REAL_SELF_NOTE = _HINTS.get('real_self_note', '')
+_RELATED_KWS = _HINTS.get('related_keywords', [])
 
 # 第一步「判断要不要回」的独立提示词——只做判断，不带风格/记忆，避免注意力被稀释。
 JUDGE_SYS = (
@@ -180,10 +181,13 @@ class Persona:
     def _judge(self, history):
         """第一步：只看最近对话流，判断要不要回 + 怎么回。返回 (是否回, 定调)。"""
         ctx = '\n'.join(f'{s}: {t}' for s, t in history[-15:])
+        last_text = history[-1][1] if history else ''
+        related = any(k in last_text for k in _RELATED_KWS)
+        hint = '\n（提示：这条消息涉及你熟悉的话题，大概率该插一句）' if related else ''
         fallback = 'qwen' if self.provider == 'deepseek' else 'deepseek'
         _p, out = chat_with_fallback(
             [{'role': 'system', 'content': JUDGE_SYS},
-             {'role': 'user', 'content': f'【最近群聊】\n{ctx}\n\n判断（只输出一个词）：'}],
+             {'role': 'user', 'content': f'【最近群聊】\n{ctx}\n\n{hint}判断（只输出一个词）：'}],
             order=(self.provider, fallback), temperature=0.2, max_tokens=8)
         out = (out or '').strip()
         if not out or out.startswith('不'):
