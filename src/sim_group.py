@@ -17,6 +17,11 @@ from collections import deque
 from src.memory import MemoryStore
 from src.persona import Persona
 
+try:
+    from src.scenarios_mined import MINED_SCENARIOS
+except Exception:
+    MINED_SCENARIOS = []
+
 persona = Persona('deepseek')
 memory = MemoryStore()
 BOT_NAME = persona._NAME if hasattr(persona, '_NAME') else '周乾坤'
@@ -165,13 +170,17 @@ def run_one(idx, scenario):
 
 
 def main():
+    if '--mined' in sys.argv:
+        scenarios = MINED_SCENARIOS
+    else:
+        scenarios = SCENARIOS
     only = None
     if '--only' in sys.argv:
         only = int(sys.argv[sys.argv.index('--only') + 1]) - 1
     if only is not None:
-        run_one(only, SCENARIOS[only])
+        run_one(only, scenarios[only])
     else:
-        for i, sc in enumerate(SCENARIOS):
+        for i, sc in enumerate(scenarios):
             run_one(i, sc)
 
 
