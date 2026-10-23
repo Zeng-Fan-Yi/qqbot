@@ -25,6 +25,7 @@ services:
       - "6081:6081"         # noVNC 远程桌面（扫码登录用）
       - "5099:5099"         # SnowLuma WebUI（配 OneBot）
     shm_size: 1g
+    mem_limit: 1200m        # 限制内存，防止桌面版 QQ 吃爆内存拖垮整个服务器（1.6G 主机留 ~400M）
     cap_add:
       - SYS_PTRACE
     security_opt:
